@@ -35,3 +35,25 @@ export function getAqiColor(aqi: number): string {
   if (aqi <= 300) return '#9c27b0'
   return '#800000'
 }
+
+/** 逐小时预报 */
+export interface HourlyForecast {
+  time: string
+  temp: number
+  icon: string
+}
+
+/** 每日预报 */
+export interface DailyForecast {
+  day: string
+  icon: string
+  tempHigh: number
+  tempLow: number
+  desc: string
+}
+
+/** 完整预报 */
+export interface Forecast {
+  hourly: HourlyForecast[]
+  daily: DailyForecast[]
+}
