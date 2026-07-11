@@ -17,6 +17,8 @@ const cityStore = useCityStore()
 const showAuthModal = ref(false)
 const showUserMenu = ref(false)
 const showForecast = ref(false)
+const expandedWidget = ref<string | null>(null)
+const lastExpanded = ref<string>('feels')
 const forecast = ref<Forecast | null>(null)
 const forecastLoading = ref(false)
 
@@ -80,7 +82,7 @@ function handleLogout() {
   loadWeatherForCity('重庆')
 }
 
-/** 加载指定城市天气（优先用缓存，无缓存才请求） */
+/** 加载指定城市天气（缓存优先） */
 async function loadWeatherForCity(city: string) {
   // 命中缓存 → 秒切
   if (weatherCache.value[city]) {
@@ -88,7 +90,6 @@ async function loadWeatherForCity(city: string) {
     airPollution.value = weatherCache.value[city].air
     return
   }
-  // 无缓存 → 请求 API
   loading.value = true
   errorMsg.value = ''
   try {
@@ -98,8 +99,6 @@ async function loadWeatherForCity(city: string) {
     weatherCache.value[city] = { weather: data.weather, air: data.air }
   } catch (e: any) {
     errorMsg.value = e.message || '搜索失败'
-    weather.value = null
-    airPollution.value = null
   } finally {
     loading.value = false
   }
@@ -111,6 +110,7 @@ function switchCity(index: number, dir?: 'left' | 'right') {
   slideDirection.value = dir === 'left' ? 'slide-left' : 'slide-right'
   cityStore.switchTo(index)
   loadWeatherForCity(cityStore.currentCity)
+  if (showForecast.value) refreshForecast()
 }
 
 /** 左滑 */
@@ -172,22 +172,36 @@ function onMouseUp() {
   touchDiff.value = 0
 }
 
-/** 展开/收起天气预报 */
+/** 展开/收起小组件 */
+function toggleWidget(name: string) {
+  if (expandedWidget.value === name) {
+    expandedWidget.value = null
+  } else {
+    lastExpanded.value = name
+    expandedWidget.value = name
+  }
+}
+
+function handleWidgetClose() {
+  expandedWidget.value = null
+}
 async function toggleForecast() {
   if (showForecast.value) {
     showForecast.value = false
     return
   }
   showForecast.value = true
-  if (!forecast.value) {
-    forecastLoading.value = true
-    try {
-      forecast.value = await fetchForecastSafe(cityStore.currentCity)
-    } catch {
-      forecast.value = null
-    } finally {
-      forecastLoading.value = false
-    }
+  await refreshForecast()
+}
+
+async function refreshForecast() {
+  forecastLoading.value = true
+  try {
+    forecast.value = await fetchForecastSafe(cityStore.currentCity)
+  } catch {
+    forecast.value = null
+  } finally {
+    forecastLoading.value = false
   }
 }
 
@@ -214,9 +228,15 @@ function getFcCy2(hourly: { temp: number }[], i: number): number {
 function getIcon(icon: string) { return getWeatherIconUrl(icon) }
 
 function barStyle(d: { tempHigh: number; tempLow: number }) {
-  const w = Math.max(((d.tempHigh - d.tempLow) / 15) * 100, 15)
-  const l = Math.max(((d.tempLow - 20) / 15) * 100, 0)
-  return { width: `${w}%`, left: `${l}%` }
+  if (!forecast.value) return { width: '50%', left: '0%' }
+  const allTemps = forecast.value.daily.flatMap(d => [d.tempHigh, d.tempLow])
+  const min = Math.min(...allTemps) - 1
+  const max = Math.max(...allTemps) + 1
+  const range = max - min || 1
+  const l = ((d.tempLow - min) / range) * 100
+  const r = ((d.tempHigh - min) / range) * 100
+  const w = r - l
+  return { width: `${Math.max(w, 5)}%`, left: `${l}%` }
 }
 function handleSetDefault(index: number) {
   cityStore.setDefault(index)
@@ -348,7 +368,6 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
             <!-- 展开的预报 -->
             <div v-if="showForecast" class="weather-forecast-col" @click.stop>
-              <button class="fc-close" @click="showForecast = false">✕</button>
               <div v-if="forecastLoading" class="fc-loading"><div class="spinner"></div></div>
           <template v-else-if="forecast">
             <div class="fc-sec">
@@ -419,9 +438,9 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
       </section>
 
       <!-- 右侧：小组件 -->
-      <aside v-if="!showForecast" class="widget-area">
+      <aside class="widget-area" :class="{ hidden: showForecast }">
         <div class="widget-grid">
-        <div class="widget-card">
+        <div class="widget-card" @click.stop="toggleWidget('humidity')">
           <WidgetHumidityWind
             v-if="weather"
             :humidity="weather.humidity"
@@ -429,7 +448,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
           />
           <div v-else class="empty-widget">--</div>
         </div>
-        <div class="widget-card">
+        <div class="widget-card" @click.stop="toggleWidget('sunrise')">
           <WidgetSunriseSunset
             v-if="weather"
             :sunrise="weather.sunrise"
@@ -437,10 +456,10 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
           />
           <div v-else class="empty-widget">--</div>
         </div>
-        <div class="widget-card">
+        <div class="widget-card" @click.stop="toggleWidget('air')">
           <WidgetAirQuality :air="airPollution" />
         </div>
-        <div class="widget-card">
+        <div class="widget-card" @click.stop="toggleWidget('feels')">
           <WidgetFeelsLike
             v-if="weather"
             :feels-like="weather.feelsLike"
@@ -448,6 +467,17 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
           />
           <div v-else class="empty-widget">--</div>
         </div>
+        </div>
+        <!-- 展开的单个组件 -->
+        <div
+          class="widget-expanded"
+          :class="[expandedWidget ? 'show' : '', 'from-' + lastExpanded]"
+          @click.stop="expandedWidget = null"
+        >
+          <WidgetHumidityWind v-if="expandedWidget === 'humidity' && weather" :humidity="weather.humidity" :wind-speed="weather.windSpeed" expanded />
+          <WidgetSunriseSunset v-if="expandedWidget === 'sunrise' && weather" :sunrise="weather.sunrise" :sunset="weather.sunset" expanded />
+          <WidgetAirQuality v-if="expandedWidget === 'air'" :air="airPollution" expanded />
+          <WidgetFeelsLike v-if="expandedWidget === 'feels' && weather" :feels-like="weather.feelsLike" :temp="weather.temp" expanded />
         </div>
       </aside>
     </main>
@@ -744,6 +774,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   flex-direction: column;
   gap: 12px;
   position: relative;
+  transition: flex 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .weather-card {
@@ -759,7 +790,8 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: box-shadow 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+              transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   cursor: pointer;
 }
@@ -772,13 +804,8 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 }
 
 /* ========== 天气卡片展开态 ========== */
-.weather-card {
-  transition: width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
-              box-shadow 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
-              transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
 .weather-display.expanded {
+  flex: 10;
   z-index: 50;
 }
 
@@ -904,15 +931,16 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
 .fc-d-temps { flex: 1; display: flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; }
 
-.fc-t-high { color: #e74c3c; }
+.fc-t-high { color: #e74c3c; width: 30px; text-align: right; flex-shrink: 0; }
 
-.fc-t-low { color: #3498db; }
+.fc-t-low { color: #3498db; width: 30px; text-align: left; flex-shrink: 0; }
 
-.fc-t-bar { flex: 1; height: 2px; background: #eef2f7; border-radius: 1px; position: relative; min-width: 20px; }
+.fc-t-bar { flex: 1; height: 4px; background: #dde4ed; border-radius: 2px; position: relative; }
 
 .fc-t-fill {
   position: absolute; top: 0; height: 100%;
-  background: linear-gradient(90deg, #3498db, #e74c3c); border-radius: 2px;
+  background: linear-gradient(90deg, #3498db, #e74c3c); border-radius: 1px;
+  min-width: 4px;
 }
 
 /* ========== 城市操作按钮 ========== */
@@ -1069,7 +1097,18 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 /* ========== 右侧小组件 ========== */
 .widget-area {
   flex: 4;
-  min-width: 280px;
+  min-width: 0;
+  position: relative;
+  transition: flex 0.45s cubic-bezier(0.25, 0.8, 0.25, 1),
+              opacity 0.25s ease;
+  overflow: hidden;
+}
+
+.widget-area.hidden {
+  flex: 0;
+  opacity: 0;
+  pointer-events: none;
+  min-width: 0;
 }
 
 .widget-grid {
@@ -1078,6 +1117,12 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   grid-template-rows: 1fr 1fr;
   gap: 16px;
   height: 100%;
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.widget-grid[style*="display: none"] {
+  display: none !important;
 }
 
 .widget-card {
@@ -1092,7 +1137,42 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.9);
   transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: pointer;
 }
+
+.widget-expanded {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(10px);
+  border-radius: 50%;
+  padding: 30px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(52, 152, 219, 0.15);
+  cursor: pointer;
+  transform: scale(0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+              opacity 0.3s ease,
+              border-radius 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.widget-expanded.show {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+  border-radius: 20px;
+}
+
+.widget-expanded.from-humidity  { transform-origin: top left; }
+.widget-expanded.from-sunrise   { transform-origin: top right; }
+.widget-expanded.from-air       { transform-origin: bottom left; }
+.widget-expanded.from-feels     { transform-origin: bottom right; }
 
 .widget-card:hover {
   transform: translateY(-4px);

@@ -1,7 +1,14 @@
 import type { CurrentWeather, AirPollution, Forecast, HourlyForecast, DailyForecast } from '../types/weather'
+import { CITIES } from '../data/cities'
 
 const API_KEY = import.meta.env.VITE_OWM_API_KEY
 const BASE = 'https://api.openweathermap.org'
+
+/** 中文城市名 → 英文名（OWM 不支持中文搜索） */
+function toEn(city: string): string {
+  const found = CITIES.find(c => c.name === city)
+  return found ? found.nameEn : city
+}
 
 /** 格式化 Unix 时间戳 → HH:mm */
 function fmtTime(ts: number): string {
@@ -23,12 +30,13 @@ function mapAqi(owm: number): { aqi: number; category: string } {
 
 /** 获取实时天气 */
 export async function fetchCurrentWeather(city: string): Promise<CurrentWeather> {
-  const url = `${BASE}/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric&lang=zh_cn`
+  const en = toEn(city)
+  const url = `${BASE}/data/2.5/weather?q=${encodeURIComponent(en)}&appid=${API_KEY}&units=metric&lang=zh_cn`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`城市查找失败 (${res.status})`)
   const d = await res.json()
   return {
-    cityName: d.name,
+    cityName: city,
     temp: Math.round(d.main.temp),
     feelsLike: Math.round(d.main.feels_like),
     humidity: d.main.humidity,
@@ -65,7 +73,8 @@ export function getWeatherIconUrl(icon: string): string {
 
 /** 获取天气预报（小时 + 每日） */
 export async function fetchForecast(city: string): Promise<Forecast> {
-  const url = `${BASE}/data/2.5/forecast?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric&lang=zh_cn`
+  const en = toEn(city)
+  const url = `${BASE}/data/2.5/forecast?q=${encodeURIComponent(en)}&appid=${API_KEY}&units=metric&lang=zh_cn`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`预报获取失败 (${res.status})`)
   const data = await res.json()
@@ -165,7 +174,7 @@ export async function fetchWeather(city: string): Promise<{
     try {
       air = await fetchAirPollution(weather.lat, weather.lon)
     } catch {
-      air = { ...MOCK_AIR, aqi: 50, category: '--' }
+      air = { aqi: 50, category: '--', pm25: 0, pm10: 0, o3: 0 }
     }
     return { weather, air }
   } catch {

@@ -29,7 +29,7 @@ export interface AirPollution {
 /** AQI 颜色映射 */
 export function getAqiColor(aqi: number): string {
   if (aqi <= 50) return '#4caf50'
-  if (aqi <= 100) return '#ffeb3b'
+  if (aqi <= 100) return '#d4a017'
   if (aqi <= 150) return '#ff9800'
   if (aqi <= 200) return '#f44336'
   if (aqi <= 300) return '#9c27b0'
