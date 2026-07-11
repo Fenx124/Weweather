@@ -61,6 +61,7 @@ export const useCityStore = defineStore('city', () => {
   function setDefault(index: number) {
     if (index === 0) return
     const city = cities.value.splice(index, 1)[0]
+    if (!city) return
     cities.value.unshift(city)
     currentIndex.value = 0
     save()

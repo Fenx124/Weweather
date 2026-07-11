@@ -7,11 +7,12 @@ import { useUserStore } from '../stores/user'
 import { useCityStore } from '../stores/cityStore'
 import { searchCities } from '../data/cities'
 
-const WeatherDisplay = defineAsyncComponent(() => import('../components/WeatherDisplay.vue'))
-const WidgetHumidityWind = defineAsyncComponent(() => import('../components/WidgetHumidityWind.vue'))
+// ===== 异步组件（用到时才加载，减少首屏体积） =====
+const WeatherDisplay      = defineAsyncComponent(() => import('../components/WeatherDisplay.vue'))
+const WidgetHumidityWind  = defineAsyncComponent(() => import('../components/WidgetHumidityWind.vue'))
 const WidgetSunriseSunset = defineAsyncComponent(() => import('../components/WidgetSunriseSunset.vue'))
-const WidgetAirQuality = defineAsyncComponent(() => import('../components/WidgetAirQuality.vue'))
-const WidgetFeelsLike = defineAsyncComponent(() => import('../components/WidgetFeelsLike.vue'))
+const WidgetAirQuality    = defineAsyncComponent(() => import('../components/WidgetAirQuality.vue'))
+const WidgetFeelsLike     = defineAsyncComponent(() => import('../components/WidgetFeelsLike.vue'))
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -27,7 +28,6 @@ const now = ref(new Date())
 
 let bgTimer: ReturnType<typeof setInterval>
 onMounted(() => { bgTimer = setInterval(() => now.value = new Date(), 60000) })
-onUnmounted(() => clearInterval(bgTimer))
 
 const timeOfDay = computed(() => {
   if (bgMode.value !== 'auto') return bgMode.value
@@ -307,21 +307,30 @@ function handleRemoveCity(index: number) {
   }
 }
 
-// 初始化（路由守卫已确保登录）
+// 初始化
 onMounted(() => {
-  cityStore.loadForUser(userStore.username)
+  if (userStore.isLoggedIn) {
+    cityStore.loadForUser(userStore.username)
+  }
   if (cityStore.hasCities) {
     loadWeatherForCity(cityStore.currentCity)
   } else {
+    // 未登录或无城市时，默认加载重庆
     cityStore.addCity('昆明')
     loadWeatherForCity('昆明')
   }
 })
 
-// 监听登录状态变化 → 退出时跳到登录页
+// 监听登录状态变化
 watch(() => userStore.isLoggedIn, (loggedIn) => {
-  if (!loggedIn) {
-    router.push('/login')
+  if (loggedIn) {
+    cityStore.loadForUser(userStore.username)
+    if (cityStore.hasCities) {
+      loadWeatherForCity(cityStore.currentCity)
+    } else {
+      cityStore.reset()
+      loadWeatherForCity('重庆')
+    }
   }
 })
 </script>
