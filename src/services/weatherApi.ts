@@ -99,10 +99,10 @@ export async function fetchForecast(city: string): Promise<Forecast> {
 
   const daily: DailyForecast[] = Object.entries(dayMap).slice(0, 7).map(([day, v]) => ({
     day,
-    icon: v.icons[Math.floor(v.icons.length / 2)],
+    icon: v.icons[Math.floor(v.icons.length / 2)] || '01d',
     tempHigh: Math.round(Math.max(...v.highs)),
     tempLow: Math.round(Math.min(...v.lows)),
-    desc: v.descs[Math.floor(v.descs.length / 2)],
+    desc: v.descs[Math.floor(v.descs.length / 2)] || '',
   }))
 
   return { hourly, daily }
@@ -111,7 +111,7 @@ export async function fetchForecast(city: string): Promise<Forecast> {
 /* ==================== 模拟数据（API 不可用时自动回退） ==================== */
 
 const MOCK_WEATHER: CurrentWeather = {
-  cityName: '重庆',
+  cityName: '昆明',
   temp: 32,
   feelsLike: 35,
   humidity: 72,

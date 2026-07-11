@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import type { CurrentWeather, AirPollution, Forecast } from './types/weather'
 import { fetchWeather, fetchForecastSafe, getWeatherIconUrl } from './services/weatherApi'
 import { useUserStore } from './stores/user'
@@ -19,6 +19,49 @@ const showUserMenu = ref(false)
 const showForecast = ref(false)
 const expandedWidget = ref<string | null>(null)
 const lastExpanded = ref<string>('feels')
+
+/** 背景模式: 'auto' | 'day' | 'dusk' | 'night' */
+const bgMode = ref<'auto' | 'day' | 'dusk' | 'night'>('auto')
+const now = ref(new Date())
+
+let bgTimer: ReturnType<typeof setInterval>
+onMounted(() => { bgTimer = setInterval(() => now.value = new Date(), 60000) })
+
+const timeOfDay = computed(() => {
+  if (bgMode.value !== 'auto') return bgMode.value
+  const h = now.value.getHours()
+  if (h >= 6 && h < 17) return 'day'
+  if (h >= 17 && h < 19) return 'dusk'
+  return 'night'
+})
+
+function cycleBg() {
+  const modes: Array<'auto' | 'day' | 'dusk' | 'night'> = ['auto', 'day', 'dusk', 'night']
+  const i = modes.indexOf(bgMode.value)
+  bgMode.value = modes[(i + 1) % modes.length] || 'auto'
+}
+
+// 背景平滑过渡（CSS gradient 无法直接 transition，用叠加层淡入淡出）
+const prevBg = ref(timeOfDay.value)
+const bgOverlay = ref(false)
+watch(timeOfDay, (val, old) => {
+  if (!old || val === old) return
+  prevBg.value = old
+  bgOverlay.value = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bgOverlay.value = false
+    })
+  })
+})
+
+// 预生成星星位置，避免每次渲染时 Math.random() 导致位置跳动
+const stars = Array.from({ length: 30 }, () => ({
+  left: Math.random() * 100,
+  top: Math.random() * 60,
+  delay: Math.random() * 3,
+}))
+
 const forecast = ref<Forecast | null>(null)
 const forecastLoading = ref(false)
 
@@ -32,6 +75,9 @@ const errorMsg = ref('')
 
 /** 天气数据缓存：cityName → { weather, air } */
 const weatherCache = ref<Record<string, { weather: CurrentWeather; air: AirPollution }>>({})
+
+/** 预报数据缓存：cityName → Forecast */
+const forecastCache = ref<Record<string, Forecast>>({})
 
 /** 滑动相关状态 */
 const touchStartX = ref(0)
@@ -195,9 +241,17 @@ async function toggleForecast() {
 }
 
 async function refreshForecast() {
+  const city = cityStore.currentCity
+  // 命中缓存 → 秒显
+  if (forecastCache.value[city]) {
+    forecast.value = forecastCache.value[city]
+    return
+  }
   forecastLoading.value = true
   try {
-    forecast.value = await fetchForecastSafe(cityStore.currentCity)
+    const data = await fetchForecastSafe(city)
+    forecast.value = data
+    forecastCache.value[city] = data
   } catch {
     forecast.value = null
   } finally {
@@ -260,8 +314,8 @@ onMounted(() => {
     loadWeatherForCity(cityStore.currentCity)
   } else {
     // 未登录或无城市时，默认加载重庆
-    cityStore.addCity('重庆')
-    loadWeatherForCity('重庆')
+    cityStore.addCity('昆明')
+    loadWeatherForCity('昆明')
   }
 })
 
@@ -280,7 +334,15 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 </script>
 
 <template>
-  <div class="app-container">
+  <div class="app-container" :class="'bg-' + timeOfDay">
+    <!-- 背景层：当前主题（z-index: -2，在内容下方） -->
+    <div class="bg-layer" :class="'bg-' + timeOfDay"></div>
+    <!-- 背景过渡层：旧主题淡出（z-index: -1） -->
+    <div v-if="prevBg !== timeOfDay || bgOverlay" class="bg-crossfade" :class="'bg-' + prevBg" :style="{ opacity: bgOverlay ? 1 : 0 }"></div>
+    <!-- 夜晚星空 -->
+    <div v-if="timeOfDay === 'night'" class="stars-layer">
+      <span v-for="s in stars" :key="s.left + '-' + s.top" class="star" :style="{ left: s.left + '%', top: s.top + '%', animationDelay: s.delay + 's' }">✦</span>
+    </div>
     <!-- 顶部导航栏 -->
     <header class="header">
       <div class="header-left">
@@ -314,6 +376,12 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
         </div>
       </div>
       <div class="header-right">
+        <!-- 主题切换 -->
+        <button class="bg-toggle" @click="cycleBg" :title="'背景: ' + bgMode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3h12l4 6-3 2-2-1v10H7V10L5 11l-3-2 4-6z"/>
+          </svg>
+        </button>
         <!-- 未登录 -->
         <button v-if="!userStore.isLoggedIn" class="login-btn" @click="showAuthModal = true">
           登录
@@ -494,11 +562,83 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
 .app-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #e0f0ff 0%, #c8e0f8 50%, #b0d4f0 100%);
   display: flex;
   flex-direction: column;
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  position: relative;
+  overflow: hidden;
 }
+
+/* ========== 背景主题 ========== */
+.bg-layer,
+.bg-crossfade {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.bg-layer    { z-index: -2; }
+.bg-crossfade { z-index: -1; transition: opacity 1.5s ease; }
+
+.bg-day {
+  background: linear-gradient(135deg, #e8f2fb 0%, #d4e6f9 50%, #c5ddf5 100%);
+}
+
+.bg-dusk {
+  background: linear-gradient(180deg, #f9d56e 0%, #f5c456 30%, #fdf2d5 70%, #fffef9 100%);
+}
+
+.bg-night {
+  background: linear-gradient(180deg, #2d3a5c 0%, #1a2744 30%, #0f1a30 70%, #0a0f1f 100%);
+}
+
+/* 夜晚星空 */
+.stars-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.star {
+  position: absolute;
+  color: #fff;
+  font-size: 8px;
+  opacity: 0;
+  animation: twinkle 3s ease-in-out infinite;
+}
+
+.star:nth-child(odd) { font-size: 6px; }
+.star:nth-child(3n) { font-size: 10px; }
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.9; }
+}
+
+/* 主题切换按钮 */
+.bg-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #dde8f0;
+  background: rgba(255,255,255,0.7);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.6s ease;
+  line-height: 1;
+  margin-right: 4px;
+}
+
+.bg-night .bg-toggle {
+  opacity: 0.8;
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+}
+.bg-toggle:hover { opacity: 1; background: #3498db; border-color: #3498db; color: #fff; }
 
 /* ========== 顶部导航栏 ========== */
 .header {
@@ -510,6 +650,97 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  transition: background 1s ease, border-color 1s ease;
+  position: relative;
+  z-index: 100;
+}
+
+.bg-night .header,
+.bg-night .weather-card,
+.bg-night .widget-card,
+.bg-night .widget-expanded,
+.bg-night .city-tab,
+.bg-night .nav-arrow {
+  background: rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(16px);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.bg-night .site-title,
+.bg-night .fc-ttl,
+.bg-night .fc-h-temp,
+.bg-night .fc-h-time,
+.bg-night .fc-d-desc,
+.bg-night .fc-d-day {
+  color: #cdd5df !important;
+  text-shadow: 0 0 8px rgba(255,255,255,0.1);
+  transition: color 0.8s ease;
+}
+
+/* 子组件内文字（用 :deep 穿透 scoped 样式） */
+.bg-night :deep(.city-name),
+.bg-night :deep(.temp-value),
+.bg-night :deep(.temp-unit),
+.bg-night :deep(.metric-value),
+.bg-night :deep(.metric-unit),
+.bg-night :deep(.feels-value),
+.bg-night :deep(.feels-unit),
+.bg-night :deep(.feels-desc),
+.bg-night :deep(.widget-title),
+.bg-night :deep(.extra-item) {
+  color: #cdd5df !important;
+  text-shadow: 0 0 8px rgba(255,255,255,0.1);
+  transition: color 0.8s ease;
+}
+
+.bg-night :deep(.weather-desc),
+.bg-night :deep(.metric-label),
+.bg-night :deep(.metric-tag),
+.bg-night :deep(.exp-tip),
+.bg-night :deep(.detail-item),
+.bg-night :deep(.exp-info),
+.bg-night :deep(.day-bar-label),
+.bg-night :deep(.exp-bar-label),
+.bg-night :deep(.exp-bar-val),
+.bg-night :deep(.no-data) {
+  color: #aabbcc !important;
+  transition: color 0.8s ease;
+}
+
+.bg-night .fc-d-row:hover { background: rgba(255,255,255,0.06); }
+.bg-night .fc-t-bar { background: rgba(255,255,255,0.1); }
+
+.bg-night .search-box {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.bg-night .search-input { color: #cdd5df; }
+.bg-night .search-input::placeholder { color: #667788; }
+.bg-night .suggestions {
+  background: #1e2d45;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.bg-night .suggestion-item { color: #cdd5df; }
+.bg-night .suggestion-item:hover { background: rgba(255,255,255,0.08); }
+.bg-night .suggestion-item .city-name { color: #cdd5df; }
+.bg-night .suggestion-item .city-en { color: #8899aa; }
+.bg-night .login-btn,
+.bg-night .user-btn {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+  color: #c0ccdd;
+}
+
+.bg-night .action-btn {
+  background: rgba(0,0,0,0.3);
+  border-color: rgba(255,255,255,0.08);
+  color: #8899aa;
+}
+
+.bg-night .city-tab.active {
+  background: rgba(52,152,219,0.5);
+  border-color: rgba(52,152,219,0.6);
 }
 
 .header-left {
@@ -563,6 +794,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 }
 
 .search-box {
+  position: relative;
   display: flex;
   align-items: center;
   background: #e8f4fd;
@@ -572,7 +804,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   box-shadow: 0 2px 12px rgba(52, 152, 219, 0.15);
   width: 100%;
   max-width: 420px;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition: background 1s ease, border-color 0.3s, box-shadow 0.3s;
 }
 
 .search-box:focus-within {
@@ -589,10 +821,12 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   border-radius: 28px;
   color: #2c3e50;
   background: transparent;
+  transition: color 0.8s ease;
 }
 
 .search-input::placeholder {
   color: #aaa;
+  transition: color 0.8s ease;
 }
 
 .search-btn {
@@ -616,10 +850,6 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 }
 
 /* ========== 搜索建议下拉 ========== */
-.search-box {
-  position: relative;
-}
-
 .suggestions {
   position: absolute;
   top: calc(100% + 6px);
@@ -631,9 +861,10 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   list-style: none;
   margin: 0;
   padding: 6px;
-  z-index: 200;
+  z-index: 300;
   overflow: hidden;
   animation: slideDown 0.2s ease;
+  transition: background 1s ease, box-shadow 0.3s;
 }
 
 @keyframes slideDown {
@@ -648,22 +879,24 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   padding: 10px 14px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.8s ease;
 }
 
 .suggestion-item:hover {
   background: #e8f4fd;
 }
 
-.city-name {
+.suggestion-item .city-name {
   font-size: 15px;
   font-weight: 600;
   color: #2c3e50;
+  transition: color 0.8s ease;
 }
 
-.city-en {
+.suggestion-item .city-en {
   font-size: 12px;
   color: #99aabb;
+  transition: color 0.8s ease;
 }
 
 .header-right {
@@ -790,7 +1023,8 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  transition: box-shadow 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+  transition: background 1s ease, border-color 1s ease,
+              box-shadow 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
               transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   cursor: pointer;
@@ -900,7 +1134,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
 .fc-sec { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.fc-ttl { font-size: 11px; font-weight: 700; color: #3498db; margin-bottom: 2px; flex-shrink: 0; }
+.fc-ttl { font-size: 11px; font-weight: 700; color: #3498db; margin-bottom: 2px; flex-shrink: 0; transition: color 0.8s ease; }
 
 .fc-chart { width: 100%; height: auto; margin-bottom: 2px; flex-shrink: 0; }
 
@@ -908,11 +1142,11 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
 .fc-h-cell { display: flex; flex-direction: column; align-items: center; min-width: 38px; flex-shrink: 0; }
 
-.fc-h-time { font-size: 9px; color: #99aabb; }
+.fc-h-time { font-size: 9px; color: #99aabb; transition: color 0.8s ease; }
 
 .fc-h-icon { width: 17px; height: 17px; }
 
-.fc-h-temp { font-size: 10px; font-weight: 700; color: #2c3e50; }
+.fc-h-temp { font-size: 10px; font-weight: 700; color: #2c3e50; transition: color 0.8s ease; }
 
 .fc-daily { display: flex; flex-direction: column; gap: 0; flex: 0 1 auto; }
 
@@ -923,11 +1157,11 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
 
 .fc-d-row:hover { background: rgba(52,152,219,0.06); }
 
-.fc-d-day { font-size: 10px; font-weight: 600; color: #2c3e50; width: 26px; flex-shrink: 0; }
+.fc-d-day { font-size: 10px; font-weight: 600; color: #2c3e50; width: 26px; flex-shrink: 0; transition: color 0.8s ease; }
 
 .fc-d-icon { width: 18px; height: 18px; }
 
-.fc-d-desc { font-size: 10px; color: #5a7a9a; width: 30px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-d-desc { font-size: 10px; color: #5a7a9a; width: 30px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.8s ease; }
 
 .fc-d-temps { flex: 1; display: flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; }
 
@@ -998,7 +1232,7 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: all 0.6s ease;
   flex-shrink: 0;
   backdrop-filter: blur(8px);
 }
@@ -1136,7 +1370,8 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: background 1s ease, border-color 1s ease,
+              all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
   cursor: pointer;
 }
 
@@ -1157,7 +1392,8 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   transform: scale(0.3);
   opacity: 0;
   pointer-events: none;
-  transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+  transition: background 1s ease, border-color 1s ease,
+              transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
               opacity 0.3s ease,
               border-radius 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
@@ -1186,6 +1422,21 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
   color: #bbb;
 }
 
+/* widget 内文字基础色（配合夜间模式过渡） */
+:deep(.widget-title) { transition: color 0.8s ease; }
+:deep(.metric-value),
+:deep(.feels-value) { color: #2c3e50; transition: color 0.8s ease; }
+:deep(.metric-unit),
+:deep(.feels-unit),
+:deep(.feels-desc) { color: #5a7a9a; transition: color 0.8s ease; }
+:deep(.metric-label),
+:deep(.metric-tag),
+:deep(.exp-tip),
+:deep(.exp-info),
+:deep(.day-bar-label),
+:deep(.exp-bar-label),
+:deep(.exp-bar-val) { color: #5a7a9a; transition: color 0.8s ease; }
+
 /* ========== 响应式适配 ========== */
 @media (max-width: 768px) {
   .header {
@@ -1210,5 +1461,13 @@ watch(() => userStore.isLoggedIn, (loggedIn) => {
     grid-template-columns: 1fr 1fr;
     min-width: 0;
   }
+}
+</style>
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
 }
 </style>

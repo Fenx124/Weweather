@@ -41,14 +41,14 @@ const level = computed(() => (props.air ? { label: props.air.category, color: ge
 
 <style scoped>
 .widget { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; }
-.widget-title { font-size: 15px; color: #5a7a9a; margin: 0 0 10px 0; font-weight: 600; }
+.widget-title { font-size: 15px; color: #5a7a9a; margin: 0 0 10px 0; font-weight: 600; transition: color 0.8s ease; }
 .widget-content { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .aqi-badge { padding: 6px 24px; border-radius: 20px; font-size: 22px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
 .details { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.detail-item { font-size: 13px; color: #5a7a9a; }
-.no-data { font-size: 14px; color: #99aabb; margin: 0; }
+.detail-item { font-size: 13px; color: #5a7a9a; transition: color 0.8s ease; }
+.no-data { font-size: 14px; color: #99aabb; margin: 0; transition: color 0.8s ease; }
 .aqi-gauge { width: 85%; margin: 12px 0 4px; position: relative; }
-.aqi-needle { position: absolute; top: -2px; font-size: 12px; color: #2c3e50; transform: translateX(-50%); transition: left 0.5s ease; }
+.aqi-needle { position: absolute; top: -2px; font-size: 12px; color: #2c3e50; transform: translateX(-50%); transition: left 0.5s ease, color 0.8s ease; }
 .aqi-scale { display: flex; justify-content: space-between; font-size: 10px; font-weight: 600; margin-top: 12px; background: linear-gradient(90deg, #4caf50, #ffeb3b, #ff9800, #f44336, #9c27b0); height: 4px; border-radius: 2px; padding-top: 4px; background-clip: content-box; }
-.exp-tip { font-size: 13px; color: #5a7a9a; margin-top: 8px; text-align: center; line-height: 1.5; }
+.exp-tip { font-size: 13px; color: #5a7a9a; margin-top: 8px; text-align: center; line-height: 1.5; transition: color 0.8s ease; }
 </style>

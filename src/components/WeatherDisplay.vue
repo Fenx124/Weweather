@@ -52,6 +52,7 @@ defineProps<{
   font-weight: 700;
   color: #2c3e50;
   margin: 0 0 6px 0;
+  transition: color 0.8s ease;
 }
 
 .weather-desc {
@@ -59,6 +60,7 @@ defineProps<{
   color: #5a7a9a;
   margin: 0;
   text-transform: capitalize;
+  transition: color 0.8s ease;
 }
 
 .weather-body {
@@ -84,12 +86,14 @@ defineProps<{
   font-weight: 300;
   color: #2c3e50;
   line-height: 1;
+  transition: color 0.8s ease;
 }
 
 .temp-unit {
   font-size: 36px;
   color: #5a7a9a;
   margin-top: 8px;
+  transition: color 0.8s ease;
 }
 
 .weather-extra {
@@ -103,5 +107,6 @@ defineProps<{
   background: rgba(74, 144, 217, 0.1);
   padding: 6px 16px;
   border-radius: 20px;
+  transition: color 0.8s ease;
 }
 </style>

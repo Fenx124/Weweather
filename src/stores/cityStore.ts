@@ -76,7 +76,7 @@ export const useCityStore = defineStore('city', () => {
 
   /** 重置为默认（仅重庆） */
   function reset() {
-    cities.value = ['重庆']
+    cities.value = ['昆明']
     currentIndex.value = 0
     save()
   }
