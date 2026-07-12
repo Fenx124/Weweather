@@ -28,6 +28,7 @@ const now = ref(new Date())
 
 let bgTimer: ReturnType<typeof setInterval>
 onMounted(() => { bgTimer = setInterval(() => now.value = new Date(), 60000) })
+onUnmounted(() => clearInterval(bgTimer))
 
 const timeOfDay = computed(() => {
   if (bgMode.value !== 'auto') return bgMode.value

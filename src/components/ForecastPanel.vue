@@ -34,8 +34,9 @@ function cyFor(hourly: { temp: number }[], i: number): number {
   const min = Math.min(...temps) - 2
   const max = Math.max(...temps) + 2
   const range = max - min || 1
-  const stepX = (100 - pad * 2) / (hourly.length - 1)
-  return pad + ((max - hourly[i].temp) / range) * (ch - pad * 2)
+  const item = hourly[i]
+  if (!item) return pad
+  return pad + ((max - item.temp) / range) * (ch - pad * 2)
 }
 </script>
 
