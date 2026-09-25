@@ -193,4 +193,4 @@ graph TD
 
 ## 开源协议
 
-MIT License -- 仅供学习交流使用
+本项目采用 [MIT License](LICENSE)，仅供学习交流使用。
